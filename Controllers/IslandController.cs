@@ -10,7 +10,7 @@ namespace island.io.Controllers;
 [Route("[controller]")]
 public class IslandController : ControllerBase
 {
-    private static readonly Dictionary<string, string> types_lookup = new Dictionary<string, string>();
+    private static Dictionary<string, string> types_lookup = new Dictionary<string, string>();
     // {
     //     { "ppt", "Document" },
     //     { "docx", "Document" },
@@ -39,25 +39,14 @@ public class IslandController : ControllerBase
 
     private static readonly List<int> user_ids = new List<int>
     {
-        1, 2, 3
+        1, 2, 1, 3, 2
     };
 
     [HttpGet(Name = "GetIslandFiles")]
     public int[] GetIslandFiles()
     {
-        /*
-         PROMPT:
-             "The function should take three arrays as input: A - user IDs for each file, B - file names, and C -
-                 file types."
-         
-         Q: What can I join these 3 sets on?
-         Should User[0] have the first 1 file?  2? 5? Where is the cutoff?
-         
-         */
-
         var results_array = solution(user_ids.ToArray(), file_names.ToArray(), file_types.ToArray());
         results_array.Dump("results for Codility");
-
         return results_array;
     }
 
@@ -79,48 +68,72 @@ number of groups within each user based on file similarity."
         var file_names = B;
         var file_types = C;
 
-        // Ok, I'm assuming the relationship of file:id:type is by the content of the text for now (I see no other alternative - I could assume 1:1:1, or 1:2:5, etc... but I won't).
-        // I see no other relationship, here, sorry.
-        // It just doesn't exist in the prompt (unless we're assuming an even ratio), but here goes:
+        // This implementation assumes:
+        // a) both arrays are always identical
+        // b) both arrays will produce a distinct dictionary every time
+        // c) in the future, we will NOT have 1:1:1 array ratios (hence why I prepended the userid to the file name, then called Extract()).
 
-        // I'm assuming user id's are IN the file names, and if they're not, then I'm appending them, so there's a relationship AND so it's somewhat future-proof.
-        // Why? In real life, we'd never rely on all 3 arrays to be perfectly ratio'd.  That's just dumb.
-        // So, the Extract() function and its Regex will ensure that a legitimate IslandUser and a legitimate IslandFile
+        var file_extensions = file_names
+            .Select(fn => fn
+                .Extract<file_extension>(@".*\.(?<ext>\w+)")
+                .FirstOrDefault())
+            .ToArray();
+        
+        // file_extensions.Dump();
+
+        List<IslandFile> renamed_files = new List<IslandFile>();
+
+        for (int index = 0; index < user_ids.Length; index++)
+        {
+            string fname = user_ids[index] + file_names[index];
+            Console.WriteLine("fname: " + fname);
+        }
+
+        // The Extract() function and its Regex will ensure that a legitimate IslandUser and a legitimate IslandFile
         // will be associated with each other NO MATTER THE ARBITRARY LENGTH OF ARRAYS.
-        
-        
+
         var island_files = file_names.Select(name =>
             // With Regex.Extract(), we can now relate any file to any type to any user!
             name.Extract<IslandFile>( // From my library, CodeMechanic.Regex
                     // (Regex written by yours truly, with love, at:  https://regex101.com/r/d4k1id/1 )
-                    @"(?<file_name>(?<user_id>\d+)?\w+)\.(?<extension>\w+)")
+                    @"(?<file_name>(?<user_id>\d+)?\w+)\.(?<raw_extension>\w+)")
                 .FirstOrDefault()
                 // ...and back-assign the user and document type
                 .With(file => // I wrote this, too.  CodeMechanic.Types
                 {
                     file.user = new IslandUser() { user_id = file.user_id.ToInt() }.Dump("user created");
-                    file.file_type = lookup_filetype(file.extension);
+                    file.file_type = lookup_filetype(file.raw_extension);
                 })
         );
 
-        
-        
+        // There, now we have a 3-way relationship!
+
+        // ... that came out wrong.
+
+        // (ahem) Now let's do our counts ... :
+
         island_files.Dump(nameof(island_files));
-        // Then do our counts:
 
+        /*
+         PROMPT: "The function should return an integer array, where each element 
+         represents the number of groups within each user based on file similarity"
+         */
 
+      
         return result;
     }
 
     private string lookup_filetype(string extension)
     {
-        Console.WriteLine("extension :>> ", extension);
+        Console.WriteLine("raw_extension :>> ", extension);
 
-        var is_found = types_lookup.TryGetValue(extension, out string doctype);
+        var is_found = types_lookup
+            // .Dump("current types")
+            .TryGetValue(extension, out string doctype);
 
         return is_found
             ? doctype.Dump("doctype")
-            : throw new Exception($"Could not find matching file type for extension .'{extension}'");
+            : throw new Exception($"Could not find matching file type for raw_extension .'{extension}'");
     }
 
     /*
@@ -139,3 +152,34 @@ number of groups within each user based on file similarity."
     {
     }
 }
+//
+// public class Island
+// {
+//     public List<IslandFileGroup> Groups = new List<IslandFileGroup>();
+// }
+
+public class IslandUser
+{
+    public int user_id { get; set; }
+}
+
+public class IslandFile
+{
+    public IslandUser user = new IslandUser(); // associate using a join.
+    public string file_type { get; set; } = string.Empty;
+    public string raw_extension { get; set; } = string.Empty;
+
+    public string file_name { get; set; } = "1234sample.pdf";
+    // public string Extension => Regex.Match(@".*\.(?<raw_extension>\w+", raw_extension).Value;
+
+    public string user_id = string.Empty;
+}
+
+public record file_extension
+{
+    public string ext { get; set; }
+}
+
+// public class IslandFileGroup
+// {
+// }

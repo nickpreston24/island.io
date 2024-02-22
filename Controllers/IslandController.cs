@@ -11,13 +11,6 @@ namespace island.io.Controllers;
 public class IslandController : ControllerBase
 {
     private static Dictionary<string, string> types_lookup = new Dictionary<string, string>();
-    // {
-    //     { "ppt", "Document" },
-    //     { "docx", "Document" },
-    //     { "png", "Photo" },
-    //     { "jpg", "Photo" },
-    //     { "mp3", "Music" },
-    // };
 
     private static readonly List<string> file_names = new List<string>
     {
@@ -26,6 +19,9 @@ public class IslandController : ControllerBase
         "presentation.ppt",
         "music.mp3",
         "photo.png",
+
+        // "music.mp3",
+        // "document.docx",
     };
 
     private static readonly List<string> file_types = new List<string>()
@@ -34,19 +30,22 @@ public class IslandController : ControllerBase
         "Image",
         "Document",
         "Audio",
-        "Image"
+        "Image",
+
+        // "Audio",
+        // "Document",
     };
 
     private static readonly List<int> user_ids = new List<int>
     {
         1, 2, 1, 3, 2
+        //, 2, 2
     };
 
     [HttpGet(Name = "GetIslandFiles")]
     public int[] GetIslandFiles()
     {
         var results_array = solution(user_ids.ToArray(), file_names.ToArray(), file_types.ToArray());
-        results_array.Dump("results for Codility");
         return results_array;
     }
 
@@ -71,40 +70,34 @@ number of groups within each user based on file similarity."
         // This implementation assumes:
         // a) both arrays are always identical
         // b) both arrays will produce a distinct dictionary every time
-        // c) in the future, we will NOT have 1:1:1 array ratios (hence why I prepended the userid to the file name, then called Extract()).
+        // c) in the future, may NOT have 1:1:1 array ratios
+        //      (hence why I prepended the userid to the file name, then called Extract()).
 
-        var file_extensions = file_names
-            .Select(fn => fn
-                .Extract<file_extension>(@".*\.(?<ext>\w+)")
-                .FirstOrDefault())
-            .ToArray();
-        
-        // file_extensions.Dump();
+        var renamed_files = RenameFiles(user_ids, file_names);
 
-        List<IslandFile> renamed_files = new List<IslandFile>();
-
-        for (int index = 0; index < user_ids.Length; index++)
-        {
-            string fname = user_ids[index] + file_names[index];
-            Console.WriteLine("fname: " + fname);
-        }
+        // return result;
+        types_lookup = generate_lookup(file_types, file_names);
 
         // The Extract() function and its Regex will ensure that a legitimate IslandUser and a legitimate IslandFile
         // will be associated with each other NO MATTER THE ARBITRARY LENGTH OF ARRAYS.
 
-        var island_files = file_names.Select(name =>
-            // With Regex.Extract(), we can now relate any file to any type to any user!
-            name.Extract<IslandFile>( // From my library, CodeMechanic.Regex
-                    // (Regex written by yours truly, with love, at:  https://regex101.com/r/d4k1id/1 )
-                    @"(?<file_name>(?<user_id>\d+)?\w+)\.(?<raw_extension>\w+)")
-                .FirstOrDefault()
-                // ...and back-assign the user and document type
-                .With(file => // I wrote this, too.  CodeMechanic.Types
-                {
-                    file.user = new IslandUser() { user_id = file.user_id.ToInt() }.Dump("user created");
-                    file.file_type = lookup_filetype(file.raw_extension);
-                })
-        );
+        var island_files =
+            renamed_files
+                .Select(f => f.file_name)
+                .Select(name =>
+                    // With Regex.Extract(), we can now relate any file to any type to any user!
+                    name.Extract<IslandFile>( // From my library, CodeMechanic.Regex
+                            // (Regex written by yours truly, with love, at:  https://regex101.com/r/d4k1id/1 )
+                            @"(?<file_name>(?<user_id>\d+)?\w+\.(?<raw_extension>\w+))")
+                        .FirstOrDefault()
+                        // ...and back-assign the user and document type
+                        .With(file => // I wrote this, too.  CodeMechanic.Types
+                        {
+                            // file.Dump("extracted file");
+                            file.user = new IslandUser { user_id = file.user_id.ToInt() };
+                            file.file_type = lookup_filetype(file.raw_extension);
+                        })
+                );
 
         // There, now we have a 3-way relationship!
 
@@ -112,27 +105,86 @@ number of groups within each user based on file similarity."
 
         // (ahem) Now let's do our counts ... :
 
-        island_files.Dump(nameof(island_files));
+        // island_files.Dump(nameof(island_files));
 
         /*
          PROMPT: "The function should return an integer array, where each element 
          represents the number of groups within each user based on file similarity"
          */
 
-      
-        return result;
+        var unique_users = island_files.ToArray()
+            .DistinctBy(island => island.user_id)
+            .Select(island => island.user)
+            .ToArray();
+
+        List<int> tallies = new List<int>();
+
+        foreach (var user in unique_users)
+        {
+            var uid = user.user_id;
+            var group_tally = island_files
+                .GroupBy(x => x.file_type)
+                .Count(x => x
+                    .Any(z => z.user_id == uid.ToString()));
+            tallies.Add(group_tally);
+        }
+
+        // tallies.Dump("final result");
+
+        return tallies.ToArray();
+    }
+
+    private static List<IslandFile> RenameFiles(int[] user_ids, string[] file_names)
+    {
+        List<IslandFile> renamed_files = new List<IslandFile>();
+        for (int index = 0; index < user_ids.Length; index++)
+        {
+            string fname = user_ids[index] + file_names[index];
+            var userid = user_ids[index];
+            // Console.WriteLine("userid: " + userid);
+            renamed_files.Add(new IslandFile()
+            {
+                file_name = fname, user_id = userid.ToString(), user = new IslandUser()
+                {
+                    user_id = userid
+                }
+                // .Dump("new island user")
+            });
+        }
+
+        // renamed_files.Dump("renamed files");
+
+        return renamed_files;
+    }
+
+    private Dictionary<string, string> generate_lookup(string[] file_types, string[] file_names)
+    {
+        var lookup = new Dictionary<string, string>();
+
+        for (int i = 0; i < file_types.Length; i++)
+        {
+            string type = file_types[i];
+            string extension = file_names[i]
+                    .Extract<file_extension>(@".*\.(?<ext>\w+)")
+                    .FirstOrDefault()?.ext.Trim() ?? string.Empty
+                ;
+            bool success = lookup.TryAdd(extension, type);
+            if (!success) continue; // should NEVER happen...
+        }
+
+        return lookup;
     }
 
     private string lookup_filetype(string extension)
     {
-        Console.WriteLine("raw_extension :>> ", extension);
-
+        // Console.WriteLine("raw_extension :>> ", extension);
         var is_found = types_lookup
             // .Dump("current types")
             .TryGetValue(extension, out string doctype);
 
         return is_found
-            ? doctype.Dump("doctype")
+            ? doctype
+            // .Dump("doctype")
             : throw new Exception($"Could not find matching file type for raw_extension .'{extension}'");
     }
 
@@ -152,34 +204,29 @@ number of groups within each user based on file similarity."
     {
     }
 }
-//
-// public class Island
-// {
-//     public List<IslandFileGroup> Groups = new List<IslandFileGroup>();
-// }
+
+public class IslandTally
+{
+}
 
 public class IslandUser
 {
-    public int user_id { get; set; }
+    public int user_id { get; set; } = 0;
 }
 
 public class IslandFile
 {
-    public IslandUser user = new IslandUser(); // associate using a join.
+    public IslandUser user { set; get; } = new IslandUser(); // associate using a join.
     public string file_type { get; set; } = string.Empty;
     public string raw_extension { get; set; } = string.Empty;
 
     public string file_name { get; set; } = "1234sample.pdf";
     // public string Extension => Regex.Match(@".*\.(?<raw_extension>\w+", raw_extension).Value;
 
-    public string user_id = string.Empty;
+    public string user_id { get; set; } = string.Empty;
 }
 
 public record file_extension
 {
     public string ext { get; set; }
 }
-
-// public class IslandFileGroup
-// {
-// }

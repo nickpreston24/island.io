@@ -51,17 +51,6 @@ public class IslandController : ControllerBase
         return results_array;
     }
 
-    /* PLEASE READ THIS
-     
-     PROMPT: "The function should return an integer array, where each element represents the
-number of groups within each user based on file similarity."
-
-    Q: So, up to [3,3,3]?  This seems a bit weird and a bit too easy for a question that needs to be made efficient. 
-    LINQ can make quick work of this.
-    
-    If it can go above 3 Groups for any given user, then why only have 3 file types?  I'm asking this ahead of time, because the phrasing of this question is very generic, has a duplicate sentence and seems a bit too easy to be as straightforward as I think.  Unfortunately, the details seem kind of sparse for both Q1 and Q2, almost as if they were meant to be vague on purpose to see who would try to pop these into ChatGPT and who would attempt to solve it.
-    
-     */
     private int[] solution(int[] A, String[] B, String[] C)
     {
         var result = new int[] { 0, 0, 0 };
@@ -101,18 +90,10 @@ number of groups within each user based on file similarity."
                         })
                 );
 
-        // There, now we have a 3-way relationship!
-
-        // ... that came out wrong.
-
-        // (ahem) Now let's do our counts ... :
-
-        // island_files.Dump(nameof(island_files));
-
         /*
-         PROMPT: "The function should return an integer array, where each element 
-         represents the number of groups within each user based on file similarity"
-         */
+          PROMPT: "The function should return an integer array, where each element 
+          represents the number of groups within each user based on file similarity"
+          */
 
         var unique_users = island_files.ToArray()
             .DistinctBy(island => island.user_id)
@@ -191,62 +172,125 @@ number of groups within each user based on file similarity."
             : throw new Exception($"Could not find matching file type for raw_extension .'{extension}'");
     }
 
-    /*
-     
-     PLEASE READ THIS
-     
-     My recruiter informs me most have failed Q2 so far.  So, I ask that my code be evaluated for quality and how I think, not so much whether I got the answer right.  I don't think there's a right answer for Question 2 because having mapped out the squares on graph paper and using basic 5th grade math, I got a different answer by 2 boxes, and the skyline counting steps seemed arbitrary (first building 2 was 'in front', then 3, then 2 again!  3-building overlaps were counted.  Nothing was recounted, because the steps were in vertical slices, so why mention it?  I could go on...)
-     
-      I suspect Q2 was ChatGPT generated, but I did my best below to try and guess at the rules it was thinking.  If it wasn't GPT, then I'm sorry, I believe the instructions were unclear and need revision and testing by your dev team.
-     
-     Thank you,
-     
-     Nick
-     */
-    // [HttpGet(Name = "GetSkyline")]
     [Route("/skyline")]
     public int GetSkyline()
     {
-        var buildings = GetBuildings()
-            // .Dump("all buildings")
-            ;
+        string json = "[[1, 5, 3], [2, 8, 6], [6, 9, 4], [7, 12, 5]]";
+        List<int[]> building_bounds = JsonConvert.DeserializeObject<List<int[]>>(json);
 
-
-        foreach (var building in buildings)
-        {
-            // building.Area.Dump("area");
-            Console.WriteLine(building);
-        }
-
-
+        var buildings = GetBuildings(building_bounds);
         // bounds:
+        // var building2 = buildings.FirstOrDefault(x => x.id == 2);
+        // // building2.Collisions.Count().Dump("Building 2 collisions");
+        // // Console.WriteLine(building2);
+        //
+        // var building4 = buildings.FirstOrDefault(x => x.id == 4);
+        // // building4.Collisions.Count().Dump("Building 4 collisions");
+        //
+        // var building1 = buildings.FirstOrDefault(x => x.id == 1);
+        // // building1.Collisions.Count().Dump("Building 1 collisions");
+        //
+        // var building3 = buildings.FirstOrDefault(x => x.id == 3);
+        // // building3.Collisions.Count().Dump("Building 3 collisions");
+
+        int naive_area = buildings.Sum(building => building.Area);
+
+        // var unoccupied_blocks
 
 
-        // int naive_total_area_of_buildings = 
-        Console.WriteLine(2.IsWithin(2, 5));
-        Console.WriteLine(5.IsWithin(2, 5));
-        Console.WriteLine(3.IsWithin(2, 5));
-        Console.WriteLine((-3).IsWithin(2, 5));
+        // Console.WriteLine("naive area :>> " + naive_area);
 
-        var building2 = buildings.FirstOrDefault(x => x.id == 2);
-        building2.Collisions.Count().Dump("Building 2 collisions");
+        // Print(naive_area, fifth_grade_math_surface_area, building1
+        //     // , new IslandFile() { file_name = "kingbob" }
+        // );
+        //
+        //
 
-        var building4 = buildings.FirstOrDefault(x => x.id == 4);
-        building4.Collisions.Count().Dump("Building 4 collisions");
-        
-        var building1 = buildings.FirstOrDefault(x => x.id == 1);
-        building1.Collisions.Count().Dump("Building 1 collisions");
-        
-        var building3 = buildings.FirstOrDefault(x => x.id == 3);
-        building3.Collisions.Count().Dump("Building 3 collisions");
 
-        return -999;
+        // what if I tried matrix?
+        int max_h = buildings.Max(x => x.height);
+        int max_x = buildings.FirstOrDefault().largest_x2;
+
+        int[,] sky = new int[max_x, max_h];
+
+        // Print(sky, max_h * max_x);
+
+        sky = PlotSkyline(building_bounds, sky);
+
+        int fifth_grade_math_surface_area = CountEmptyBoxes(building_bounds, sky);
+        Print("How I'd tally this thing :>> " + fifth_grade_math_surface_area);
+
+        int actual_sky_dimensions = sky.GetLength(0) * sky.GetLength(1);
+        Print("actual sky dimensions " + actual_sky_dimensions); // 72
+
+        return fifth_grade_math_surface_area;
     }
 
-    private List<Building> GetBuildings(string json = "[[1, 5, 3], [2, 8, 6], [6, 9, 4], [7, 12, 5]]")
+    private int CountEmptyBoxes(List<int[]> building_bounds, int[,] sky)
     {
-        var arrs = JsonConvert.DeserializeObject<List<int[]>>(json);
+        // sky.Dump("sky passed in");
+        int empty_boxes = 0;
+        int full_boxes = 0;
 
+        for (int i = 0; i < sky.GetLength(0); i++)
+        {
+            for (int j = 0; j < sky.GetLength(1); j++)
+            {
+                int box_value = sky[i, j];
+                Console.WriteLine($"box value from {i}-{i + 1},{j} :>> " + box_value);
+                if (box_value == 0)
+                    empty_boxes++;
+                else
+                    full_boxes++;
+            }
+        }
+
+        // empty_boxes.Dump(nameof(empty_boxes));
+        // full_boxes.Dump(nameof(full_boxes));
+
+        return empty_boxes;
+    }
+
+    private int[,] PlotSkyline(List<int[]> building_bounds, int[,] sky)
+    {
+        foreach (var bounds in building_bounds)
+        {
+            // Print(bounds);
+            int x = bounds[0];
+            int y = bounds[1];
+            int h = bounds[2];
+
+            // Print(x, y, h);
+            Print($"from {x} to {y}, height {h}");
+
+            for (int i = x + 1; i <= y; i++)
+            {
+                for (int j = 1; j <= h; j++)
+                {
+                    Print($"Plotting box ({i - 1},{j - 1})");
+                    // Increment # of buildings existing at this coordinate
+                    sky[i - 1, j - 1] = sky[i - 1, j - 1] + 1;
+                }
+            }
+        }
+
+        Print(sky);
+        return sky;
+    }
+
+    private void Print(params object[] items)
+    {
+        foreach (var item in items)
+        {
+            if (item.OverridesToString())
+                Console.WriteLine(item);
+            // else
+            //     item.Dump();
+        }
+    }
+
+    private List<Building> GetBuildings(List<int[]> arrs)
+    {
         var buildings = arrs.Aggregate(new List<Building>(), (list, next) =>
         {
             int index = list.Count;
@@ -345,5 +389,11 @@ public static class Extensions
         }
 
         return (a <= x && x <= b) || (x >= a && b >= x);
+    }
+
+    public static bool OverridesToString(this object obj)
+    {
+        // This Type or one of its base types has overridden object.ToString()
+        return obj.ToString() != obj.GetType().ToString();
     }
 }

@@ -1,8 +1,10 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using CodeMechanic.Advanced.Regex;
 using CodeMechanic.Diagnostics;
 using CodeMechanic.Types;
 using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
 
 namespace island.io.Controllers;
 
@@ -157,6 +159,7 @@ number of groups within each user based on file similarity."
         return renamed_files;
     }
 
+
     private Dictionary<string, string> generate_lookup(string[] file_types, string[] file_names)
     {
         var lookup = new Dictionary<string, string>();
@@ -200,13 +203,115 @@ number of groups within each user based on file similarity."
      
      Nick
      */
-    public void Skyline()
+    // [HttpGet(Name = "GetSkyline")]
+    [Route("/skyline")]
+    public int GetSkyline()
     {
+        var buildings = GetBuildings()
+            // .Dump("all buildings")
+            ;
+
+
+        foreach (var building in buildings)
+        {
+            // building.Area.Dump("area");
+            Console.WriteLine(building);
+        }
+
+
+        // bounds:
+
+
+        // int naive_total_area_of_buildings = 
+        Console.WriteLine(2.IsWithin(2, 5));
+        Console.WriteLine(5.IsWithin(2, 5));
+        Console.WriteLine(3.IsWithin(2, 5));
+        Console.WriteLine((-3).IsWithin(2, 5));
+
+        var building2 = buildings.FirstOrDefault(x => x.id == 2);
+        building2.Collisions.Count().Dump("Building 2 collisions");
+
+        var building4 = buildings.FirstOrDefault(x => x.id == 4);
+        building4.Collisions.Count().Dump("Building 4 collisions");
+        
+        var building1 = buildings.FirstOrDefault(x => x.id == 1);
+        building1.Collisions.Count().Dump("Building 1 collisions");
+        
+        var building3 = buildings.FirstOrDefault(x => x.id == 3);
+        building3.Collisions.Count().Dump("Building 3 collisions");
+
+        return -999;
+    }
+
+    private List<Building> GetBuildings(string json = "[[1, 5, 3], [2, 8, 6], [6, 9, 4], [7, 12, 5]]")
+    {
+        var arrs = JsonConvert.DeserializeObject<List<int[]>>(json);
+
+        var buildings = arrs.Aggregate(new List<Building>(), (list, next) =>
+        {
+            int index = list.Count;
+            var x = arrs[index];
+            var building = new Building()
+            {
+                id = index + 1,
+                leftmost_limit = x[0],
+                rightmost_limit = x[1],
+                height = x[2],
+            };
+            list.Add(building);
+            return list;
+        });
+
+        // all buildings are now aware of all buildings.
+        foreach (var building in buildings)
+        {
+            building.buildings = buildings;
+        }
+
+        return buildings;
     }
 }
 
-public class IslandTally
+public class Building
 {
+    public int id { get; set; } = -1;
+    public int leftmost_limit { get; set; } = -1;
+    public int rightmost_limit { get; set; } = -1;
+    public int height { get; set; } = -1;
+
+    public List<Building> buildings { get; set; } = new List<Building>();
+
+    // Computed props:
+    public int max_height => buildings.Max(x => x.height);
+    public int smallest_x1 => buildings.Min(x => x.leftmost_limit);
+    public int largest_x2 => buildings.Max(x => x.rightmost_limit);
+    public int area_of_the_sky => max_height * (largest_x2 - 0);
+    public int Area => height * (rightmost_limit - leftmost_limit);
+
+    public string Name => $"Building {id}";
+    public List<Building> Collisions => buildings.Where(x => this.collides_with(x)).ToList();
+
+
+    public override string ToString()
+    {
+        return new StringBuilder()
+            .AppendLine($"{nameof(Name)}={Name}")
+            .AppendLine($"{nameof(area_of_the_sky)}={area_of_the_sky}")
+            .AppendLine("## Dimensions")
+            .AppendLine($"{nameof(Area)}={Area}")
+            .AppendLine($"{nameof(max_height)}={max_height}")
+            .AppendLine($"{nameof(leftmost_limit)}={leftmost_limit}")
+            .AppendLine($"{nameof(rightmost_limit)}={rightmost_limit}")
+            .ToString();
+    }
+
+    public bool collides_with(Building building)
+    {
+        if (this.leftmost_limit.IsWithin(building.leftmost_limit, building.rightmost_limit)) return true;
+        if (this.rightmost_limit.IsWithin(building.rightmost_limit, building.leftmost_limit)) return true;
+
+        return false;
+    }
 }
 
 public class IslandUser
@@ -221,7 +326,6 @@ public class IslandFile
     public string raw_extension { get; set; } = string.Empty;
 
     public string file_name { get; set; } = "1234sample.pdf";
-    // public string Extension => Regex.Match(@".*\.(?<raw_extension>\w+", raw_extension).Value;
 
     public string user_id { get; set; } = string.Empty;
 }
@@ -229,4 +333,17 @@ public class IslandFile
 public record file_extension
 {
     public string ext { get; set; }
+}
+
+public static class Extensions
+{
+    public static bool IsWithin(this int x, int a = 0, int b = 0)
+    {
+        if (a == b)
+        {
+            return false;
+        }
+
+        return (a <= x && x <= b) || (x >= a && b >= x);
+    }
 }

@@ -1,8 +1,11 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
-using CodeMechanic.Advanced.Regex;
-using CodeMechanic.Diagnostics;
-using CodeMechanic.Types;
+// using CodeMechanic.Advanced.Regex;
+// using CodeMechanic.Diagnostics;
+// using CodeMechanic.Types;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 
@@ -85,7 +88,7 @@ public class IslandController : ControllerBase
                         .With(file => // I wrote this, too.  CodeMechanic.Types
                         {
                             // file.Dump("extracted file");
-                            file.user = new IslandUser { user_id = file.user_id.ToInt() };
+                            file.user = new IslandUser { user_id = Int32.Parse(file.user_id) };
                             file.file_type = lookup_filetype(file.raw_extension);
                         })
                 );
@@ -220,8 +223,6 @@ public class IslandController : ControllerBase
         int fifth_grade_math_surface_area = CountEmptyBoxes(building_bounds, sky);
         Print("How I'd tally this thing :>> " + fifth_grade_math_surface_area);
 
-        int actual_sky_dimensions = sky.GetLength(0) * sky.GetLength(1);
-        Print("actual sky dimensions " + actual_sky_dimensions); // 72
 
         return fifth_grade_math_surface_area;
     }
@@ -229,6 +230,10 @@ public class IslandController : ControllerBase
     private int CountEmptyBoxes(List<int[]> building_bounds, int[,] sky)
     {
         // sky.Dump("sky passed in");
+
+        int actual_sky_dimensions = sky.GetLength(0) * sky.GetLength(1);
+        // Print("actual sky dimensions " + actual_sky_dimensions); // 72
+
         int empty_boxes = 0;
         int full_boxes = 0;
 
@@ -248,7 +253,9 @@ public class IslandController : ControllerBase
         // empty_boxes.Dump(nameof(empty_boxes));
         // full_boxes.Dump(nameof(full_boxes));
 
-        return empty_boxes;
+        return
+            actual_sky_dimensions -
+            empty_boxes; // 59, not 56.  There's no way 56 can happen, unless arbitrary counting rules are more clearly defined (see Building 2 and 3 taking turns being counted).
     }
 
     private int[,] PlotSkyline(List<int[]> building_bounds, int[,] sky)
@@ -395,5 +402,139 @@ public static class Extensions
     {
         // This Type or one of its base types has overridden object.ToString()
         return obj.ToString() != obj.GetType().ToString();
+    }
+
+    public static T With<T>(this T obj, Action<T> patch)
+    {
+        patch(obj);
+        return obj;
+    }
+
+    public static List<T> Extract<T>(
+        this string text,
+        string regex_pattern,
+        bool enforce_exact_match = false,
+        bool debug = false,
+        RegexOptions options = RegexOptions.None
+    )
+    {
+        var collection = new List<T>();
+
+        // If we get no text, throw if we're in devmode (debug == true)
+        // If in prod, we want to probably return an empty set.
+        if (string.IsNullOrWhiteSpace(text))
+            return debug
+                ? throw new ArgumentNullException(nameof(text))
+                : collection;
+
+        // Get the class properties so we can set values to them.
+        var props = typeof(T).GetProperties().ToList();
+
+        // If in prod, we want to probably return an empty set.
+        if (props.Count == 0)
+            return debug
+                ? throw new ArgumentNullException($"No properties found for type {typeof(T).Name}")
+                : collection;
+
+        var errors = new StringBuilder();
+
+        if (options == RegexOptions.None)
+            options =
+                RegexOptions.Compiled
+                | RegexOptions.IgnoreCase
+                | RegexOptions.ExplicitCapture
+                | RegexOptions.Singleline
+                | RegexOptions.IgnorePatternWhitespace;
+
+        var regex = new System.Text.RegularExpressions.Regex(regex_pattern, options,
+            TimeSpan.FromMilliseconds(250));
+
+        var matches = regex.Matches(text).Cast<Match>();
+
+
+        matches.Aggregate(
+            collection,
+            (list, match) =>
+            {
+                if (!match.Success)
+                {
+                    errors.AppendLine(
+                        $"No matches found! Could not extract a '{typeof(T).Name}' instance from regex pattern:\n{regex_pattern}.\n"
+                    );
+                    errors.AppendLine(text);
+
+                    var missing = props
+                        .Select(property => property.Name)
+                        .Except(regex.GetGroupNames(), StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+
+                    if (missing.Length > 0)
+                    {
+                        errors.AppendLine("Properties without a mapped Group:");
+                        missing.Aggregate(errors, (result, name) => result.AppendLine(name));
+                    }
+
+                    if (errors.Length > 0)
+                        //throw new Exception(errors.ToString());
+                        Debug.WriteLine(errors.ToString());
+                }
+
+                // This rolls up any and all exceptions encountered and rethrows them,
+                // if we're trying to go for an absolute, no exceptions matching of Regex Groups to Class Properties:
+                if (enforce_exact_match && match.Groups.Count - 1 != props.Count)
+                {
+                    errors.AppendLine(
+                        $"{MethodBase.GetCurrentMethod().Name}() "
+                        + $"WARNING: Number of Matched Groups ({match.Groups.Count}) "
+                        + $"does not equal the number of properties for the given class '{typeof(T).Name}'({props.Count})!  "
+                        + $"Check the class type and regex pattern for errors and try again."
+                    );
+
+                    errors.AppendLine("Values Parsed Successfully:");
+
+                    for (int groupIndex = 1; groupIndex < match.Groups.Count; groupIndex++)
+                    {
+                        errors.Append($"{match.Groups[groupIndex].Value}\t");
+                    }
+
+                    errors.AppendLine();
+                    Debug.WriteLine(errors.ToString());
+                    //throw new Exception(errors.ToString());
+                }
+
+                object instance = Activator.CreateInstance(typeof(T));
+
+                foreach (var property in props)
+                {
+                    // Get the raw string value that was matched by the Regex for each Group that was captured:
+                    string value = match
+                        .Groups
+                        .Cast<Group>()
+                        .SingleOrDefault(group =>
+                            group.Name.Equals(property.Name, StringComparison.OrdinalIgnoreCase))?.Value
+                        .Trim();
+
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        property.SetValue(
+                            instance,
+                            value: TypeDescriptor
+                                .GetConverter(property.PropertyType)
+                                .ConvertFrom(value),
+                            index: null
+                        );
+                    }
+                    else if (property.CanWrite)
+                    {
+                        property?.SetValue(instance, value: null, index: null);
+                    }
+                }
+
+                list.Add((T)instance);
+                return list;
+            }
+        );
+
+        return collection;
     }
 }
